@@ -41,13 +41,25 @@ const allowedOrigins = [
 const isDevelopmentOrigin = (origin) =>
   process.env.NODE_ENV !== "production" &&
   /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+const isVercelOrigin = (origin) => {
+  try {
+    const url = new URL(origin);
+    return url.hostname.endsWith(".vercel.app");
+  } catch (_) {
+    return false;
+  }
+};
 
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (e.g. mobile apps, curl, Postman)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || isDevelopmentOrigin(origin)) {
+      if (
+        allowedOrigins.includes(origin) ||
+        isDevelopmentOrigin(origin) ||
+        isVercelOrigin(origin)
+      ) {
         return callback(null, true);
       }
       return callback(new Error(`CORS: origin ${origin} not allowed.`));
@@ -55,6 +67,18 @@ app.use(
     credentials: true,
   })
 );
+
+// Ensure MongoDB connection in serverless environments (e.g. Vercel)
+app.use(async (req, res, next) => {
+  if (mongoose.connection.readyState !== 1 && process.env.MONGO_URI) {
+    try {
+      await connectDB();
+    } catch (err) {
+      console.error("MongoDB connection error:", err.message);
+    }
+  }
+  next();
+});
 
 // Keep liveness/readiness probes independent from API rate limits.
 app.get("/health", (req, res) => {
@@ -155,4 +179,8 @@ const startServer = async () => {
   });
 };
 
-startServer();
+if (require.main === module && !process.env.VERCEL) {
+  startServer();
+}
+
+module.exports = app;
